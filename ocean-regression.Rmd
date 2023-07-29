@@ -1,0 +1,291 @@
+---
+title: "Predicting Ocean Salinity Levels"
+output:
+  pdf_document: default
+date: '2023-03-19'
+author: "Evan Coons"
+---
+
+
+## Introduction 
+
+
+Ocean salinity is the amount of salt in the ocean water. Although it is a simple measurement, It affects the ocean's currents, pH level, density, evaporation levels, and water cycle. These changes have cascading affects on things like droughts and sealife. Some studies show that in recent decades, ocean salinity levels have been affected by global warming. And vice versa, the salinity of the ocean affects the currents, which impacts the global temperature. The ocean has a careful balance of salts and equilibrium, and a small change in salinity can have unforeseen impacts. 
+
+
+**Research Question**: Can we predict ocean salinity based on ocean metrics? 
+
+Furthermore, we want to compare the model we have to regression with only one predictor variable -- temperature. How effective is this model? This is important because temperature is very easily measured.
+
+
+
+Predicting salinity from some a variety of metrics could help to forecast the behavior of the ocean in the future -- where current might move, how sealife will be affected, and how global temperature might change, among many others. Hence, in this regression, we will predict salinity based on a variety of factors -- distance from coast, depth, temperature, density of oxygen, density of water, and wave height. We will start with a full linear model, and hope to simplify to a more effective model. 
+
+The California Cooperative Oceanic Fisheries Investigations has been collecting data on the ocean since 1949, and offers this data publicly. 
+
+[CACOFI data](https://calcofi.org/data/oceanographic-data/bottle-database/)
+
+
+**Paper Structure**: The paper begins with a description of the data. We then begin to fit models, starting with a full linear model. The least significant predictor variables are removed, and predictive ability is not affected. We also adjust for multicollinearity. Next, we use box cox to find transformations to the predictor and response variable that improve the model. Finally, we compare this to a simple linear model. Analysis and conclusions are then provided. 
+
+\newpage
+
+## Data Description
+
+### Reading in data and selecting variables
+
+
+```{r, echo = FALSE, include = FALSE}
+library(dplyr)
+library(car)
+```
+
+```{r, cache = TRUE}
+ocean <- read.csv("bottle.csv")
+cast <- read.csv("cast.csv")
+```
+
+Here, `Salnty` is salinity, `T_degC` is Temperature in Celsius, `O2ml_L` is the density of Oxygen, `STheta` is the density of the water, `Distance` is the distance in nautical miles from the coast, and `Depthm` is depth in meters.
+
+```{r, cache = TRUE}
+ocean_sample <- ocean[sample(count(ocean)[[1]], 10000), ] # taking 10000 observations for speed. 
+ocean_cast <- merge(ocean_sample, cast, by = "Cst_Cnt") %>% select(Salnty, T_degC, O2ml_L, STheta, Distance, Depthm, Wave_Ht)
+ocean_cast <- na.omit(ocean_cast)
+ocean_cast$Distance <- -1 * ocean_cast$Distance # Positive distance is easier to work with than negative
+```
+
+
+### Summary of Data and Relationships
+
+**Summary**
+
+```{r}
+summary(ocean_cast)
+```
+
+**Data Distributions**
+
+```{r}
+par(mfrow=c(2,4))
+hist(ocean_cast$Salnty, main = "Salnty")
+hist(ocean_cast$T_degC, main = "T_degC")
+hist(ocean_cast$O2ml_L, main = "O2ml_L")
+hist(ocean_cast$STheta, main = "STheta")
+hist(ocean_cast$Distance, main = "Distance")
+hist(ocean_cast$Depthm, main = "Depthm")
+hist(ocean_cast$Wave_Ht, main = "Wave_Ht")
+
+```
+
+**Relationships**
+```{r}
+pairs(ocean_cast, cex = 0.1)
+```
+
+**What these plot tell us**:
+Plotting `summary(data)` and the histograms of the data, we can begin to understand the distributions. 
+This summary tells us that Salnty, T-degC, O2ml_L, Stheta are relatively symmetric distributions. Distance and Depthm are heavily right skewed. 
+
+
+## Results and interpretation (Finding a model)
+
+### Multiple Linear Regression -- no transformations 
+
+
+```{r}
+model <- lm(Salnty ~ ., data = ocean_cast)
+summary(model)
+```
+
+```{r}
+anova(model)
+```
+
+
+To get an idea of how the data are related, we can first make a simple linear regression. We find a very high $R^2 = 0.9861$ and very significant p values, but there **may be overfitting factors here, and there is certainly collinearity**. We have many predictor variables and a lot of data. We will investigate further to determine this. Next, we will plot the diagnostic plots, residuals of each of the variables, and added variable plots. We will also take a closer look at the pair plots.  
+
+**`See Appendix Figures 1,2,3.`**
+
+
+From our pair plots, we find that overall, our linear assumption is not valid for distance, depth, and wave height. Temperature, density, and O2 density seem to have non constant variance as well. This suggests that we should do some transformation to improve our model. Before the transformation, though, we should address the diagnostics of the original model. 
+
+The residual plots do show randomness, but there are high leverage points that have a strong effect. Also, the Q-Q plot shows that the residuals are not following a normal distribution. The distribution of residuals is **heavy tailed** due to a few outliers. The added variable plots also show that distance and wave_ht have very little predictive ability and are heavily influenced by high leverage points, so we should remove them. 
+
+We remove some outliers, along with the columns, Wave_Ht and Distance. Wave_Ht and Distance are heavily influenced by high leverage points. We look again at the added variable plots, and they have improved. 
+
+Finally, we should look at the collinearity. 
+
+```{r}
+vif(model)
+```
+
+Temperature and STheta have very high correlation, so we should remove one of them, or else the $\hat\beta_j$ is poorly predicted due to mulitcollinearity. We will remove density because temperature is a more important predictor variable (temperature is a more accurate and easy measurement -- I will expand on this later). 
+
+
+Adjusting for outliers and removing Distance, Wave height, and Density.
+```{r}
+ocean_cast_large <- ocean_cast # we have to keep the old data for the appendix
+ocean_cast <- ocean_cast %>% select(Salnty, T_degC, O2ml_L, Depthm)
+row.names(ocean_cast) <- as.integer(row.names(ocean_cast))
+ocean_cast <- ocean_cast[-c(4350, 9968, 8735, 4444, 4386, 4350, 4388, 4386, 6444, 6451), ]
+model2 <- lm(Salnty ~. , data = ocean_cast )
+summary(model2)
+```
+```{r}
+vif(model2)
+```
+
+
+**`See Appendix Figure 4`**
+
+Our $R^2$ has decreased, but we expected this, as previously we had the effects of overfitting and multicollinearity. 
+
+### Transforming predictor variables and response variable - Box Cox
+
+```{r, include = F}
+ocean_cast$Depthm[ocean_cast$Depthm == 0] <- 0.0001
+ocean_cast <- ocean_cast[ocean_cast$O2ml_L > 0, ] 
+```
+
+I will use the box cox method to transform both the predictor variables and the response. 
+
+
+```{r}
+attach(ocean_cast)
+summary(powerTransform(cbind(Salnty, T_degC, O2ml_L, Depthm)~1))
+```
+
+This suggests that we should raise Salnty to the power of 30 and take the square root of Depth. 
+
+```{r}
+model3 <- lm(Salnty ** 30 ~ T_degC + O2ml_L + sqrt(Depthm), data= ocean_cast)
+summary(model3)
+```
+
+
+Box Cox significantly imporved predictive ability, looking at the *R^2*. An improvement from 0.83 to 0.88 is significant, showing the transformation has made our data closer to linear. 
+
+To Evaluate the model, we will Again look at the pair plots, diagnostic plots, and summary tables. 
+
+**`Appendix Figure 5, 6, 7 -- Diagnostics, Pair Plots, Standardized Residuals`**
+
+There are fewer outliers, the residuals appear more normally distributed, and the residuals have remained randomly scattered. Overall, our transformed plot seems to be simpler and perform better than the original regression. Although the $R^2$ was already large, we found linear transformations and improved our model from $R^2 = 0.83$ to $R^2 = 0.88$, which is a significant improvement for an already high R value. 
+
+Looking at the pair plots, the linear assumption is much better satisfied. In addition, diagnostic plots show constant variance has also improved.  
+
+### Can we simplify even further? 
+
+If we took this model to the real world, we may want to consider something else -- temperature is by the far the easiest and most important predictor variable. More information in [this NASA article](https://climate.nasa.gov/news/58/with-a-pinch-of-salt/#:~:text=Salinity%20levels%20are%20important%20for,the%20tropics%20to%20the%20poles.). In addition -- all of this data is *not easy* to collect around the world. Temperature is a far easier to measure. The measurement instruments are cheaper, more acessible, and more widespread. 
+
+Thus, we should test a one dimensional linear regression with temperature as the sole predictor variable. 
+
+```{r}
+model4 <- lm(Salnty ~ T_degC, data= ocean_cast)
+summary(model4)
+```
+
+
+```{r}
+plot(Salnty ~ T_degC, data= ocean_cast, cex = 0.4)
+```
+
+Here, the normal distribution of residuals is satisfied, but they are cleary not randomly scattered when we look at residuals vs fitted values or standardized residual plot. There is **non-constant** variance. 
+
+To fix this, we should try a weighted least squares transformation. 
+
+```{r}
+model5 <- lm(Salnty ~ T_degC, data = ocean_cast, weight = 1/T_degC^2)
+summary(model5)
+```
+
+
+
+```{r}
+par(mfrow=c(2,2))
+plot(model5, cex= 0.2)
+```
+
+Here, we find an $R^2$ of 0.79, much better than the original regression with $R^2$ = 0.61. The standardized residuals improved. This is almost as good as our multiple linear regression.
+
+## Conclusions
+
+We began with a multiple linear regression with 6 predictor variables. For this first model, we found that all predictor variables were significant, and we had a very large $R^2 = 0.98$, but this was due to multicollinearity and overfitting. 
+
+Thus, from using multiple diagnostic tools, we removed 3 predictor variables. In the second model, the $R^2$ decreased (0.83), but we eliminated multicollinearity and ineffective predictor variables. There were still issues with the linear assumption. 
+
+To improve, we created a third model that was a transformation, by raising the response variable to the power of 30 and taking the square root of depth. The resulting $R^2$ improved to $0.88$, and the relationships appeared linear (figure 6). Diagnostic plots were satisfied. 
+
+Finally, we created a fourth model that was a simple linear regression with temperature. In the real world, we have much richer temperature data than the rest of the metrics, so it would be reasonable to predict Salinity solely from temperature. We found a very good model with $R^2 = 0.81$. 
+
+Overall, we found the third model to be the best: 
+
+$${Salinity}^{30} = 9.733*10^{43} (Temperature) -9.973*10^{44}(O_2 \text{concentration}) + 1.142*10^{44}\sqrt{depth}$$
+However, the simple linear regression is also very effective: 
+
+$$Salinity = -0.102829(Temperature)$$
+Thus, we would choose model 3 as the best model with the best linearity and constant variance. However, in a real world situation, the simple linear model may be the most useful, depending on the application. 
+
+Limitations: 
+There were a few limitations on this analysis. First, all data was collected off the coast of California only. Also, my computer is not strong enough to process the millions of observations in this data, so I have to take a (fairly large) representative sample. I also do not know enough about splitting into training and testing data, which could definitely help to evaluate how effective the model is. 
+
+\newpage
+
+## Appendix
+
+## Model 1
+
+### Figure 1 - Diagnostic Plots
+
+```{r}
+par(mfrow=c(2,2))
+plot(model, cex = 0.3)
+```
+
+### Figure 2 - Residuals
+
+```{r}
+SR <-rstandard(model)
+par(mfrow=c(2,3))
+plot(ocean_cast_large$T_degC, SR, xlab="T_degC", ylab="Standardized Residuals", cex = 0.2)
+plot(ocean_cast_large$O2ml_L, SR, xlab="O2ml_L", ylab="Standardized Residuals", cex = 0.2)
+plot(ocean_cast_large$STheta, SR, xlab="STheta", ylab="StandardizedResiduals", cex = 0.2)
+plot(ocean_cast_large$Distance, SR, xlab="Distance", ylab="Standardized Residuals", cex = 0.2)
+plot(ocean_cast_large$Depthm, SR, xlab="Depthm", ylab="Standardized Residuals", cex = 0.2)
+plot(ocean_cast_large$Wave_Ht, SR, xlab="Wave_Ht", ylab="Standardized Residuals", cex = 0.2)
+```
+
+### Figure 3 - Added variable Plots
+
+```{r, warning = FALSE}
+library(car)
+avPlots(model)
+```
+
+### Figure 4 - Added variable plots after modification
+
+```{r}
+avPlots(model2)
+```
+
+### Figure 5 -- diagnostic plots
+
+```{r}
+par(mfrow=c(2,2))
+plot(model3, cex = 0.5)
+```
+
+### Figure 6 -- Pair plots
+
+```{r}
+pairs(Salnty ** 30 ~T_degC + O2ml_L + sqrt(Depthm), data= ocean_cast, cex = 0.1)
+```
+
+
+### Figure 7 -- Residual plots
+```{r}
+SR <-rstandard(model3)
+par(mfrow=c(2,2))
+plot(ocean_cast$T_degC, SR, xlab="T_degC", ylab="Standardized Residuals", cex = 0.1)
+plot(ocean_cast$O2ml_L, SR, xlab="O2ml_L", ylab="Standardized Residuals", cex = 0.1)
+plot(ocean_cast$Depthm, SR, xlab="Depthm", ylab="Standardized Residuals", cex = 0.1)
+```
